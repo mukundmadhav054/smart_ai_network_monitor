@@ -18,18 +18,20 @@ from prometheus_client import Counter, make_asgi_app
 from anomaly.detector import AnomalyDetector
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 PROM_BASE_URL = os.getenv("PROMETHEUS_BASE_URL", "http://localhost:9090")
 LATENCY_METRIC = os.getenv("PROMETHEUS_LATENCY_METRIC", "network_latency_ms")
 LOSS_METRIC = os.getenv("PROMETHEUS_LOSS_METRIC", "network_packet_loss_pct")
 DEFAULT_DEVICE = os.getenv("SIMULATOR_DEVICE_ID", "r2")
 LOOKBACK_MINUTES = int(os.getenv("ALERT_LOOKBACK_MINUTES", "5"))
 
-ANSIBLE_INVENTORY = os.getenv("ANSIBLE_INVENTORY", "ansible/inventory/hosts.yml")
-DEFAULT_PLAYBOOK = os.getenv("ANSIBLE_PLAYBOOK", "ansible/playbooks/remediate_latency.yml")
-DEFAULT_CANARY_LIMIT = os.getenv("CANARY_LIMIT", "r2")
+ANSIBLE_INVENTORY = str((REPO_ROOT / "ansible/inventory/hosts.yml").resolve())
+DEFAULT_PLAYBOOK = str((REPO_ROOT / "ansible/playbooks/remediate_latency.yml").resolve())
+DEFAULT_CANARY_LIMIT = "r2"
 
-INTENTS_PATH = os.getenv("INTENTS_PATH", "intent/intents.yml")
-REPO_ROOT = Path(__file__).resolve().parents[1]
+INTENTS_PATH = REPO_ROOT / "intent/intents.yml"
+ALLOWED_SYMPTOMS = {"high_latency", "packet_loss"}
 
 ALERTS_TOTAL = Counter("samn_alerts_total", "Alerts emitted", ["metric", "device"])
 REMEDIATIONS_TOTAL = Counter("samn_remediations_total", "Remediations invoked", ["status"])
@@ -65,35 +67,23 @@ class PrometheusMetricsProvider:
 
 
 class IntentStore:
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: Path) -> None:
         self.path = path
         self._intents = self._load()
 
     def _load(self) -> dict:
-        data = yaml.safe_load(Path(self.path).read_text(encoding="utf-8"))
+        data = yaml.safe_load(self.path.read_text(encoding="utf-8"))
         return data or {}
 
     def get(self, symptom: str) -> dict | None:
         return self._intents.get(symptom)
 
 
-def _validate_limit(limit: str | None) -> str | None:
-    if not limit:
-        return None
-    if not re.fullmatch(r"[A-Za-z0-9_\-.:,]+", limit):
-        raise HTTPException(status_code=400, detail="Invalid limit format")
-    return limit
-
-
-def _resolve_playbook(playbook: str) -> str:
-    path = Path(playbook)
-    resolved = path if path.is_absolute() else (REPO_ROOT / path)
-    resolved = resolved.resolve()
-    if not resolved.is_file():
+def _resolve_playbook() -> str:
+    playbook = Path(DEFAULT_PLAYBOOK)
+    if not playbook.is_file():
         raise HTTPException(status_code=404, detail="Playbook not found")
-    if not str(resolved).startswith(str(REPO_ROOT)):
-        raise HTTPException(status_code=400, detail="Playbook path not allowed")
-    return str(resolved)
+    return str(playbook)
 
 
 def _serialize_extra_vars(extra_vars: dict) -> str:
@@ -144,7 +134,6 @@ class RemediateRequest(BaseModel):
     dry_run: bool = True
     canary: bool = True
     rollback: bool = False
-    limit: str | None = None
 
 
 class RemediateResult(BaseModel):
@@ -213,13 +202,12 @@ def _build_ansible_command(
     extra_vars_path: str,
     dry_run: bool,
     canary: bool,
-    limit: str | None,
 ) -> List[str]:
     cmd = ["ansible-playbook", "-i", ANSIBLE_INVENTORY, playbook]
     if dry_run:
         cmd.append("--check")
     if canary:
-        cmd += ["--limit", limit or DEFAULT_CANARY_LIMIT]
+        cmd += ["--limit", DEFAULT_CANARY_LIMIT]
     cmd += ["-e", f"@{extra_vars_path}"]
     return cmd
 
@@ -230,10 +218,10 @@ def remediate(
     intents: IntentStore = Depends(get_intent_store),
 ) -> RemediateResult:
     intent = intents.get(request.symptom)
-    if not intent:
+    if not intent or request.symptom not in ALLOWED_SYMPTOMS:
         raise HTTPException(status_code=404, detail="Unknown intent")
 
-    playbook = _resolve_playbook(intent.get("playbook", DEFAULT_PLAYBOOK))
+    playbook = _resolve_playbook()
     extra_vars = intent.get("vars", {}).copy()
     extra_vars.update(
         {
@@ -243,7 +231,6 @@ def remediate(
         }
     )
 
-    safe_limit = _validate_limit(request.limit)
     extra_vars_path = _serialize_extra_vars(extra_vars)
 
     cmd = _build_ansible_command(
@@ -251,7 +238,6 @@ def remediate(
         extra_vars_path=extra_vars_path,
         dry_run=request.dry_run,
         canary=request.canary,
-        limit=safe_limit,
     )
 
     try:

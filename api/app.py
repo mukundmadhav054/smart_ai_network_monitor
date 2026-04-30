@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +29,7 @@ DEFAULT_PLAYBOOK = os.getenv("ANSIBLE_PLAYBOOK", "ansible/playbooks/remediate_la
 DEFAULT_CANARY_LIMIT = os.getenv("CANARY_LIMIT", "r2")
 
 INTENTS_PATH = os.getenv("INTENTS_PATH", "intent/intents.yml")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 ALERTS_TOTAL = Counter("samn_alerts_total", "Alerts emitted", ["metric", "device"])
 REMEDIATIONS_TOTAL = Counter("samn_remediations_total", "Remediations invoked", ["status"])
@@ -72,6 +75,44 @@ class IntentStore:
 
     def get(self, symptom: str) -> dict | None:
         return self._intents.get(symptom)
+
+
+def _validate_limit(limit: str | None) -> str | None:
+    if not limit:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_\-.:,]+", limit):
+        raise HTTPException(status_code=400, detail="Invalid limit format")
+    return limit
+
+
+def _resolve_playbook(playbook: str) -> str:
+    path = Path(playbook)
+    resolved = path if path.is_absolute() else (REPO_ROOT / path)
+    resolved = resolved.resolve()
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Playbook not found")
+    if not str(resolved).startswith(str(REPO_ROOT)):
+        raise HTTPException(status_code=400, detail="Playbook path not allowed")
+    return str(resolved)
+
+
+def _serialize_extra_vars(extra_vars: dict) -> str:
+    safe_vars: dict[str, object] = {}
+    for key, value in extra_vars.items():
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(key)):
+            raise HTTPException(status_code=400, detail="Invalid variable name")
+        if not isinstance(value, (str, int, float, bool)):
+            raise HTTPException(status_code=400, detail="Invalid variable type")
+        safe_vars[str(key)] = value
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        prefix="samn_vars_",
+        suffix=".yml",
+        delete=False,
+    ) as handle:
+        yaml.safe_dump(safe_vars, handle)
+        return handle.name
 
 
 def get_metrics_provider() -> MetricsProvider:
@@ -169,7 +210,7 @@ def alerts(
 
 def _build_ansible_command(
     playbook: str,
-    extra_vars: dict,
+    extra_vars_path: str,
     dry_run: bool,
     canary: bool,
     limit: str | None,
@@ -179,8 +220,7 @@ def _build_ansible_command(
         cmd.append("--check")
     if canary:
         cmd += ["--limit", limit or DEFAULT_CANARY_LIMIT]
-    for key, value in extra_vars.items():
-        cmd += ["-e", f"{key}={value}"]
+    cmd += ["-e", f"@{extra_vars_path}"]
     return cmd
 
 
@@ -193,7 +233,7 @@ def remediate(
     if not intent:
         raise HTTPException(status_code=404, detail="Unknown intent")
 
-    playbook = intent.get("playbook", DEFAULT_PLAYBOOK)
+    playbook = _resolve_playbook(intent.get("playbook", DEFAULT_PLAYBOOK))
     extra_vars = intent.get("vars", {}).copy()
     extra_vars.update(
         {
@@ -203,12 +243,15 @@ def remediate(
         }
     )
 
+    safe_limit = _validate_limit(request.limit)
+    extra_vars_path = _serialize_extra_vars(extra_vars)
+
     cmd = _build_ansible_command(
         playbook=playbook,
-        extra_vars=extra_vars,
+        extra_vars_path=extra_vars_path,
         dry_run=request.dry_run,
         canary=request.canary,
-        limit=request.limit,
+        limit=safe_limit,
     )
 
     try:
@@ -222,6 +265,11 @@ def remediate(
     except subprocess.TimeoutExpired as exc:
         REMEDIATIONS_TOTAL.labels(status="timeout").inc()
         raise HTTPException(status_code=504, detail="Remediation timed out") from exc
+    finally:
+        try:
+            Path(extra_vars_path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
     status = "ok" if result.returncode == 0 else "error"
     REMEDIATIONS_TOTAL.labels(status=status).inc()

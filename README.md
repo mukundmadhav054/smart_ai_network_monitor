@@ -38,7 +38,7 @@ graph LR
 
 ## Quickstart (WSL2)
 
-Prereqs:
+Prerequisites:
 - Docker Desktop with WSL2 integration
 - WSL2 Ubuntu
 

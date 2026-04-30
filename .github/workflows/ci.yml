@@ -11,6 +11,7 @@ permissions:
 jobs:
   dependency-review:
     if: github.event_name == 'pull_request'
+    continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
       contents: read

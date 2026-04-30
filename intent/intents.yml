@@ -1,0 +1,22 @@
+---
+# Intent mapping: maps detected symptom -> remediation playbook and variables
+
+high_latency:
+  description: "High latency detected on device"
+  playbook: ansible/playbooks/remediate_latency.yml
+  targets: routers
+  vars:
+    interface: eth2
+    bandwidth_limit: 100mbit
+    priority: 1
+
+packet_loss:
+  description: "High packet loss detected"
+  playbook: ansible/playbooks/remediate_latency.yml
+  targets: routers
+  vars:
+    interface: eth2
+    bandwidth_limit: 50mbit
+    priority: 1
+
+# TODO: Extend with regex-based symptom matching and severity levels.

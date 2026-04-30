@@ -1,0 +1,30 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "ignorePaths": [
+    "**/.git/**",
+    "**/.venv/**",
+    "**/__pycache__/**",
+    "**/.pytest_cache/**",
+    "**/.ruff_cache/**",
+    "**/node_modules/**",
+    "**/grafana/dashboard.json"
+  ],
+  "words": [
+    "Ansible",
+    "ansible",
+    "AnsiblePlaybook",
+    "containerlab",
+    "FastAPI",
+    "Grafana",
+    "PromQL",
+    "Prometheus",
+    "Telemetry",
+    "telemetry",
+    "vtysh",
+    "WSL2",
+    "uvicorn",
+    "pytest",
+    "cspell"
+  ]
+}

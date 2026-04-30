@@ -1,0 +1,11 @@
+#! Generic QoS template
+# NOTE: This is a simple, vendor-agnostic placeholder. Adapt to vendor CLIs as needed.
+
+! QoS config for {{ inventory_hostname }}
+interface {{ interface | default('eth2') }}
+  description "QoS applied by Smart AI Network Monitor"
+  # bandwidth_limit can be like '100mbit' or an integer representing kbps depending on vendor
+  bandwidth {{ bandwidth_limit | default('100mbit') }}
+  priority {{ priority | default(1) }}
+
+# End of template

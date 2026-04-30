@@ -1,0 +1,51 @@
+---
+# Common role tasks: backup and restore primitives.
+# Action is controlled by role var `common_operation`: 'backup' or 'restore'.
+
+- name: Fetch running config from device (FRR example)
+  when: common_operation == 'backup'
+  ansible.builtin.command:
+    argv:
+      - vtysh
+      - -c
+      - show running-config
+  register: running_cfg
+  changed_when: false
+
+- name: Save running config to control node backup directory
+  when: common_operation == 'backup'
+  delegate_to: localhost
+  ansible.builtin.copy:
+    content: "{{ running_cfg.stdout }}"
+    dest: "{{ common_backup_dir }}/{{ inventory_hostname }}.cfg"
+    mode: "0644"
+
+- name: Load backup content on control node
+  when: common_operation == 'restore'
+  delegate_to: localhost
+  ansible.builtin.command:
+    argv:
+      - cat
+      - "{{ common_backup_dir }}/{{ inventory_hostname }}.cfg"
+  register: backup_content
+  changed_when: false
+
+- name: Copy restored config to device temp file
+  when: common_operation == 'restore'
+  ansible.builtin.copy:
+    content: "{{ backup_content.stdout }}"
+    dest: "/tmp/restore_cfg_{{ inventory_hostname }}.cfg"
+    mode: "0644"
+
+- name: Apply restored config (FRR example)
+  when: common_operation == 'restore'
+  ansible.builtin.command:
+    argv:
+      - vtysh
+      - -c
+      - configure terminal
+      - -c
+      - "source /tmp/restore_cfg_{{ inventory_hostname }}.cfg"
+  changed_when: true
+
+# TODO: Replace FRR vtysh commands with vendor-specific modules (ios_config, nxos_config) when moving to real devices.

@@ -1,0 +1,97 @@
+---
+- name: Remediate high latency via QoS changes
+  hosts: routers
+  become: true
+  gather_facts: false
+
+  vars:
+    dry_run: "{{ dry_run | default(true) }}"
+    canary: "{{ canary | default(true) }}"
+    rollback: "{{ rollback | default(false) }}"
+    backup_dir: "{{ playbook_dir }}/../backups"
+    tmp_dir: "{{ playbook_dir }}/../tmp"
+    qos_template: "{{ playbook_dir }}/../templates/qos.j2"
+
+  pre_tasks:
+    - name: Ensure local backup directory exists
+      delegate_to: localhost
+      ansible.builtin.file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Ensure local temp directory exists
+      delegate_to: localhost
+      ansible.builtin.file:
+        path: "{{ tmp_dir }}"
+        state: directory
+        mode: "0755"
+
+  tasks:
+    - name: Perform backup of running config (control node)
+      when: not rollback
+      ansible.builtin.include_role:
+        name: common
+      vars:
+        common_operation: backup
+        common_backup_dir: "{{ backup_dir }}"
+
+    - name: Render QoS configuration to control host
+      when: not rollback
+      delegate_to: localhost
+      ansible.builtin.template:
+        src: "{{ qos_template }}"
+        dest: "{{ tmp_dir }}/qos_{{ inventory_hostname }}.cfg"
+        mode: "0644"
+
+    - name: Push QoS config and apply (supports dry_run via check_mode)
+      when: not rollback
+      block:
+        - name: Copy config to remote device
+          ansible.builtin.copy:
+            src: "{{ tmp_dir }}/qos_{{ inventory_hostname }}.cfg"
+            dest: /tmp/qos.cfg
+            mode: "0644"
+          check_mode: "{{ dry_run | bool }}"
+
+        - name: Apply QoS config (FRR/vtysh example)
+          ansible.builtin.command:
+            argv:
+              - vtysh
+              - -c
+              - configure terminal
+              - -c
+              - source /tmp/qos.cfg
+          register: apply_result
+          changed_when: not (dry_run | bool)
+          check_mode: "{{ dry_run | bool }}"
+
+    - name: Canary verification step (local note)
+      when: canary and not rollback
+      ansible.builtin.debug:
+        msg: "Canary applied on {{ inventory_hostname }} (dry_run={{ dry_run }}, canary={{ canary }})"
+
+    - name: Trigger restore from backup when rollback requested
+      when: rollback
+      ansible.builtin.include_role:
+        name: common
+      vars:
+        common_operation: restore
+        common_backup_dir: "{{ backup_dir }}"
+
+  post_tasks:
+    - name: Record remediation run metadata
+      delegate_to: localhost
+      ansible.builtin.copy:
+        dest: "{{ backup_dir }}/last_run_{{ inventory_hostname }}.txt"
+        mode: "0644"
+        content: |
+          host: {{ inventory_hostname }}
+          dry_run: {{ dry_run }}
+          canary: {{ canary }}
+          rollback: {{ rollback }}
+
+# Notes:
+# - This playbook uses a small, vendor-agnostic example to push a QoS file and use vtysh to source it.
+# - For vendor devices, replace the copy+command with the appropriate connection/module (nxos_config, iosxr_config, etc.)
+# - Run in dry run: ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/remediate_latency.yml -e "dry_run=true"

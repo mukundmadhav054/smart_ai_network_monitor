@@ -1,4 +1,4 @@
 pytest>=8,<9
 ruff>=0.5,<1
-ansible-core>=2.14,<2.18
+ansible-core>=2.20.5,<2.21
 ansible-lint>=6.22,<25

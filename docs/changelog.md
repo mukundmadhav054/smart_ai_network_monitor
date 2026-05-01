@@ -26,6 +26,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Prometheus host alias for Linux docker compose networking.
 - Safer rollback when backup files are missing.
 - IsolationForest fallback now avoids training on the current sample.
+- README remediation example now handles optional API tokens explicitly.
+- Prometheus device labels are validated before query construction.
+- Remediation playbook dry-run failures are logged and re-raised.
+- Containerlab topology and docker-compose YAML use spaces for indentation.
 
 ## [0.1.0] - 2026-04-30
 ### Added

@@ -29,6 +29,7 @@ LOSS_METRIC = os.getenv("PROMETHEUS_LOSS_METRIC", "network_packet_loss_pct")
 DEFAULT_DEVICE = os.getenv("SIMULATOR_DEVICE_ID", "r2")
 LOOKBACK_MINUTES = int(os.getenv("ALERT_LOOKBACK_MINUTES", "5"))
 REMEDIATE_API_TOKEN = os.getenv("REMEDIATE_API_TOKEN", "")
+ENVIRONMENT = os.getenv("ENVIRONMENT", os.getenv("ENV", "dev")).lower()
 
 ANSIBLE_INVENTORY = str((REPO_ROOT / "ansible/inventory/hosts.yml").resolve())
 DEFAULT_PLAYBOOK = str((REPO_ROOT / "ansible/playbooks/remediate_latency.yml").resolve())
@@ -41,6 +42,7 @@ REMEDIATIONS_TOTAL = Counter("samn_remediations_total", "Remediations invoked", 
 
 LOG = logging.getLogger("samn_api")
 PROM_CLIENT = httpx.Client(timeout=10.0)
+DEVICE_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class MetricsProvider(Protocol):
@@ -53,6 +55,8 @@ class PrometheusMetricsProvider:
     base_url: str
 
     def series(self, metric: str, device: str, lookback_minutes: int) -> List[float]:
+        if not DEVICE_PATTERN.fullmatch(device):
+            raise HTTPException(status_code=400, detail="Invalid device identifier")
         end = time.time()
         start = end - (lookback_minutes * 60)
         step = max(5, int((lookback_minutes * 60) / 30))
@@ -170,6 +174,11 @@ def require_remediate_token(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not REMEDIATE_API_TOKEN:
+        LOG.warning(
+            "REMEDIATE_API_TOKEN is not set; /remediate is unauthenticated in %s mode",
+            ENVIRONMENT,
+        )
     yield
     PROM_CLIENT.close()
 

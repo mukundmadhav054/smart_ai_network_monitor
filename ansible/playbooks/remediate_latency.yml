@@ -85,6 +85,10 @@
           changed_when: false
           failed_when: '"QoS applied by Smart AI Network Monitor" not in qos_verify.stdout'
       rescue:
+        - name: Log block failure details
+          ansible.builtin.debug:
+            msg: "Block failed with: {{ ansible_failed_result | default('unknown error') }}"
+
         - name: Trigger rollback after apply failure
           when: not (dry_run | bool)
           ansible.builtin.include_role:
@@ -92,6 +96,11 @@
           vars:
             common_operation: restore
             common_backup_dir: "{{ backup_dir }}"
+
+        - name: Re-raise error in dry_run mode
+          when: dry_run | bool
+          ansible.builtin.fail:
+            msg: "Dry run failed - review logged error above"
 
     - name: Canary verification step (local note)
       when: canary and not rollback

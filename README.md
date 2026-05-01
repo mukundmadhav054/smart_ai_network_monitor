@@ -126,14 +126,20 @@ ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/remediate_late
 
 ## API Remediation
 
-If you set `REMEDIATE_API_TOKEN` in `.env`, pass it as `X-API-Token`.
-
 ~~~bash
-curl -s -X POST http://localhost:8000/remediate \
-  -H "Content-Type: application/json" \
-  -H "X-API-Token: $REMEDIATE_API_TOKEN" \
-  -d '{"symptom":"high_latency","dry_run":true,"canary":true}' | jq
+if [[ -n "${REMEDIATE_API_TOKEN:-}" ]]; then
+  curl -s -X POST http://localhost:8000/remediate \
+    -H "Content-Type: application/json" \
+    -H "X-API-Token: ${REMEDIATE_API_TOKEN}" \
+    -d '{"symptom":"high_latency","dry_run":true,"canary":true}' | jq
+else
+  curl -s -X POST http://localhost:8000/remediate \
+    -H "Content-Type: application/json" \
+    -d '{"symptom":"high_latency","dry_run":true,"canary":true}' | jq
+fi
 ~~~
+
+`REMEDIATE_API_TOKEN` is optional for local development. If you set it in `.env`, the header is added automatically.
 
 ## Local Verification
 

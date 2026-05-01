@@ -1,102 +1,102 @@
 {
-	"title": "SAMN Overview",
-	"uid": "samn-overview",
-	"schemaVersion": 38,
-	"version": 1,
-	"refresh": "10s",
-	"timezone": "browser",
-	"time": {
-		"from": "now-15m",
-		"to": "now"
-	},
-	"panels": [
-		{
-			"id": 1,
-			"type": "timeseries",
-			"title": "Latency (ms)",
-			"datasource": "Prometheus",
-			"targets": [
-				{
-					"expr": "network_latency_ms",
-					"legendFormat": "{{device}} {{interface}}"
-				}
-			],
-			"gridPos": {
-				"h": 8,
-				"w": 12,
-				"x": 0,
-				"y": 0
-			}
-		},
-		{
-			"id": 2,
-			"type": "timeseries",
-			"title": "Packet Loss (%)",
-			"datasource": "Prometheus",
-			"targets": [
-				{
-					"expr": "network_packet_loss_pct",
-					"legendFormat": "{{device}} {{interface}}"
-				}
-			],
-			"gridPos": {
-				"h": 8,
-				"w": 12,
-				"x": 12,
-				"y": 0
-			}
-		},
-		{
-			"id": 3,
-			"type": "stat",
-			"title": "Alerts Total",
-			"datasource": "Prometheus",
-			"targets": [
-				{
-					"expr": "sum(samn_alerts_total)"
-				}
-			],
-			"gridPos": {
-				"h": 6,
-				"w": 6,
-				"x": 0,
-				"y": 8
-			}
-		},
-		{
-			"id": 4,
-			"type": "stat",
-			"title": "Remediations Total",
-			"datasource": "Prometheus",
-			"targets": [
-				{
-					"expr": "sum by (status) (samn_remediations_total)"
-				}
-			],
-			"gridPos": {
-				"h": 6,
-				"w": 6,
-				"x": 6,
-				"y": 8
-			}
-		},
-		{
-			"id": 5,
-			"type": "timeseries",
-			"title": "Alerts by Metric",
-			"datasource": "Prometheus",
-			"targets": [
-				{
-					"expr": "sum by (metric) (samn_alerts_total)",
-					"legendFormat": "{{metric}}"
-				}
-			],
-			"gridPos": {
-				"h": 6,
-				"w": 12,
-				"x": 12,
-				"y": 8
-			}
-		}
-	]
+  "title": "SAMN Overview",
+  "uid": "samn-overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "timezone": "browser",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Latency (ms)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "network_latency_ms",
+          "legendFormat": "{{device}} {{interface}}"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Packet Loss (%)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "network_packet_loss_pct",
+          "legendFormat": "{{device}} {{interface}}"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Alerts Total",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(samn_alerts_total)"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Remediations Total",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(samn_remediations_total)"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Alerts by Metric",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (metric) (samn_alerts_total)",
+          "legendFormat": "{{metric}}"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      }
+    }
+  ]
 }

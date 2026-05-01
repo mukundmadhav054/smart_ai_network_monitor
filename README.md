@@ -36,26 +36,26 @@ graph LR
     PROM --> GRAF[Grafana Dashboard]
 ~~~
 
-  ## Workflow Guide
+## Workflow Guide
 
-  For a full end-to-end walkthrough, see [docs/USAGE.md](docs/USAGE.md).
+For a full end-to-end walkthrough, see [docs/USAGE.md](docs/USAGE.md).
 
-  ### Workflow Flowchart
+### Workflow Flowchart
 
-  ~~~mermaid
-  flowchart TD
-    A[Bootstrap WSL2 environment] --> B[Start Prometheus + Grafana]
-    B --> C[Deploy containerlab topology]
-    C --> D[Run telemetry simulator]
-    D --> E[Run API service]
-    E --> F[Check alerts endpoint]
-    F --> G{Anomaly detected?}
-    G -->|No| D
-    G -->|Yes| H[Review intent mapping]
-    H --> I[Trigger remediation]
-    I --> J[Validate QoS applied]
-    J --> F
-  ~~~
+~~~mermaid
+flowchart TD
+  A[Bootstrap WSL2 environment] --> B[Start Prometheus + Grafana]
+  B --> C[Deploy containerlab topology]
+  C --> D[Run telemetry simulator]
+  D --> E[Run API service]
+  E --> F[Check alerts endpoint]
+  F --> G{Anomaly detected?}
+  G -->|No| D
+  G -->|Yes| H[Review intent mapping]
+  H --> I[Trigger remediation]
+  I --> J[Validate QoS applied]
+  J --> F
+~~~
 
 ## Quickstart (WSL2)
 

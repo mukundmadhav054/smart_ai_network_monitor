@@ -36,6 +36,27 @@ graph LR
     PROM --> GRAF[Grafana Dashboard]
 ~~~
 
+  ## Workflow Guide
+
+  For a full end-to-end walkthrough, see [docs/USAGE.md](docs/USAGE.md).
+
+  ### Workflow Flowchart
+
+  ~~~mermaid
+  flowchart TD
+    A[Bootstrap WSL2 environment] --> B[Start Prometheus + Grafana]
+    B --> C[Deploy containerlab topology]
+    C --> D[Run telemetry simulator]
+    D --> E[Run API service]
+    E --> F[Check alerts endpoint]
+    F --> G{Anomaly detected?}
+    G -->|No| D
+    G -->|Yes| H[Review intent mapping]
+    H --> I[Trigger remediation]
+    I --> J[Validate QoS applied]
+    J --> F
+  ~~~
+
 ## Quickstart (WSL2)
 
 Prerequisites:
@@ -51,6 +72,9 @@ cd smart_ai_network_monitor
 2. Create environment file
 ~~~bash
 cp .env.example .env
+set -a
+source .env
+set +a
 ~~~
 
 3. Bootstrap system deps (containerlab, iperf3, base packages)
@@ -102,9 +126,12 @@ ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/remediate_late
 
 ## API Remediation
 
+If you set `REMEDIATE_API_TOKEN` in `.env`, pass it as `X-API-Token`.
+
 ~~~bash
 curl -s -X POST http://localhost:8000/remediate \
   -H "Content-Type: application/json" \
+  -H "X-API-Token: $REMEDIATE_API_TOKEN" \
   -d '{"symptom":"high_latency","dry_run":true,"canary":true}' | jq
 ~~~
 

@@ -19,6 +19,20 @@ telemetry ingestion -> anomaly detection -> intent mapping -> safe Ansible remed
 - M3: Simulator + anomaly detector + API.
 - M4: CI + docs + templates.
 
+## Completed This Iteration
+- Prometheus targets resolve on Linux with a host alias.
+- Grafana dashboard includes latency, loss, and alert panels.
+- Bootstrap validates a Prometheus query after startup.
+- /remediate supports an optional API token and Prometheus responses are validated.
+- Detector handles invalid inputs and negative anomalies; fallback avoids current sample.
+- Ansible canary gating, rollback safety checks, and QoS validation are in place.
+- Quickstart documents .env loading and CI runs an API health smoke test.
+
+## Next Step Backlog
+- Add containerlab node exporters or native telemetry exporters for in-lab metrics.
+- Add structured audit logging for remediation requests and outcomes.
+- Expand Grafana dashboard with anomaly score and remediation status panels.
+
 ## Key Paths
 - Topology: containerlab/topology.yml
 - Observability: infrastructure/docker-compose.yml, infrastructure/prometheus/prometheus.yml

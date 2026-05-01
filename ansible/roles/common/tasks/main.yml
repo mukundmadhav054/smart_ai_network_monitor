@@ -23,6 +23,19 @@
 - name: Load backup content on control node
   when: common_operation == 'restore'
   delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ common_backup_dir }}/{{ inventory_hostname }}.cfg"
+  register: backup_stat
+
+- name: Abort restore when backup is missing
+  when: common_operation == 'restore' and not backup_stat.stat.exists
+  delegate_to: localhost
+  ansible.builtin.fail:
+    msg: "Backup not found for {{ inventory_hostname }} at {{ common_backup_dir }}"
+
+- name: Read backup content on control node
+  when: common_operation == 'restore'
+  delegate_to: localhost
   ansible.builtin.command:
     argv:
       - cat

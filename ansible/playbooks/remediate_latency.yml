@@ -13,6 +13,14 @@
     qos_template: "{{ playbook_dir }}/../templates/qos.j2"
 
   pre_tasks:
+    - name: Determine canary host
+      ansible.builtin.set_fact:
+        canary_host: "{{ ansible_play_hosts_all | first }}"
+
+    - name: Skip non-canary hosts when canary enabled
+      when: canary | bool and inventory_hostname != canary_host
+      ansible.builtin.meta: end_host
+
     - name: Ensure local backup directory exists
       delegate_to: localhost
       ansible.builtin.file:
@@ -65,6 +73,25 @@
           register: apply_result
           changed_when: not (dry_run | bool)
           check_mode: "{{ dry_run | bool }}"
+
+        - name: Validate QoS description is present
+          when: not (dry_run | bool)
+          ansible.builtin.command:
+            argv:
+              - vtysh
+              - -c
+              - show running-config
+          register: qos_verify
+          changed_when: false
+          failed_when: '"QoS applied by Smart AI Network Monitor" not in qos_verify.stdout'
+      rescue:
+        - name: Trigger rollback after apply failure
+          when: not (dry_run | bool)
+          ansible.builtin.include_role:
+            name: common
+          vars:
+            common_operation: restore
+            common_backup_dir: "{{ backup_dir }}"
 
     - name: Canary verification step (local note)
       when: canary and not rollback

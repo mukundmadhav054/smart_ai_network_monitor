@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 COMPOSE_FILE="infrastructure/docker-compose.yml"
 TOPOLOGY_FILE="containerlab/topology.yml"
 
-if [[ -f .env]]; then
+if [[ -f .env ]]; then
   set -a
   # shellcheck disable=SC1091
   source .env
@@ -56,6 +56,27 @@ echo "Deploying containerlab topology"
 
 wait_for_http "http://localhost:9090/-/healthy" 40 2
 wait_for_http "http://localhost:3000/api/health" 40 2
+
+wait_for_prometheus_query() {
+    local query="$1"
+    local retries="${2:-20}"
+    local delay="${3:-2}"
+
+    for ((i=1; i<=retries; i++)); do
+      if curl -fsS --get --data-urlencode "query=${query}" "http://localhost:9090/api/v1/query" \
+        | grep -q '"status":"success"'; then
+        echo "Prometheus query ok: ${query}"
+        return 0
+      fi
+      echo "Waiting ($i/$retries) for Prometheus query: ${query}"
+      sleep "$delay"
+    done
+
+    echo "Timed out waiting for Prometheus query: ${query}"
+    return 1
+}
+
+wait_for_prometheus_query 'up{job="prometheus"}' 20 2
 
 echo "Lab setup completed and is up."
 echo "Prometheus: http://localhost:9090"

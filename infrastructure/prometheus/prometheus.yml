@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  - job_name: "telemetry_simulator"
+    static_configs:
+      - targets: ["host.docker.internal:9108"]
+        labels:
+          job: "telemetry"
+
+  - job_name: "samn_api"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]

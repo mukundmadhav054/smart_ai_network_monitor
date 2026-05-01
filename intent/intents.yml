@@ -3,6 +3,10 @@
 
 high_latency:
   description: "High latency detected on device"
+  severity: warning
+  match:
+    - "^high[_ -]?latency$"
+    - "^latency[_ -]?(spike|degradation)$"
   playbook: ansible/playbooks/remediate_latency.yml
   targets: routers
   vars:
@@ -12,11 +16,13 @@ high_latency:
 
 packet_loss:
   description: "High packet loss detected"
+  severity: critical
+  match:
+    - "^packet[_ -]?loss$"
+    - "^loss[_ -]?(spike|degradation)$"
   playbook: ansible/playbooks/remediate_latency.yml
   targets: routers
   vars:
     interface: eth2
     bandwidth_limit: 50mbit
     priority: 1
-
-# TODO: Extend with regex-based symptom matching and severity levels.

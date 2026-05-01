@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
+import secrets
 import subprocess
 import tempfile
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Protocol
 
 import httpx
 import yaml
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 from prometheus_client import Counter, make_asgi_app
 
@@ -25,16 +28,21 @@ LATENCY_METRIC = os.getenv("PROMETHEUS_LATENCY_METRIC", "network_latency_ms")
 LOSS_METRIC = os.getenv("PROMETHEUS_LOSS_METRIC", "network_packet_loss_pct")
 DEFAULT_DEVICE = os.getenv("SIMULATOR_DEVICE_ID", "r2")
 LOOKBACK_MINUTES = int(os.getenv("ALERT_LOOKBACK_MINUTES", "5"))
+REMEDIATE_API_TOKEN = os.getenv("REMEDIATE_API_TOKEN", "")
+ENVIRONMENT = os.getenv("ENVIRONMENT", os.getenv("ENV", "dev")).lower()
 
 ANSIBLE_INVENTORY = str((REPO_ROOT / "ansible/inventory/hosts.yml").resolve())
 DEFAULT_PLAYBOOK = str((REPO_ROOT / "ansible/playbooks/remediate_latency.yml").resolve())
 DEFAULT_CANARY_LIMIT = "r2"
 
 INTENTS_PATH = REPO_ROOT / "intent/intents.yml"
-ALLOWED_SYMPTOMS = {"high_latency", "packet_loss"}
 
 ALERTS_TOTAL = Counter("samn_alerts_total", "Alerts emitted", ["metric", "device"])
 REMEDIATIONS_TOTAL = Counter("samn_remediations_total", "Remediations invoked", ["status"])
+
+LOG = logging.getLogger("samn_api")
+PROM_CLIENT = httpx.Client(timeout=10.0)
+DEVICE_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class MetricsProvider(Protocol):
@@ -47,23 +55,38 @@ class PrometheusMetricsProvider:
     base_url: str
 
     def series(self, metric: str, device: str, lookback_minutes: int) -> List[float]:
+        if not DEVICE_PATTERN.fullmatch(device):
+            raise HTTPException(status_code=400, detail="Invalid device identifier")
         end = time.time()
         start = end - (lookback_minutes * 60)
         step = max(5, int((lookback_minutes * 60) / 30))
-        query = f'{metric}{{device="{device}"}}'
+        query = f'avg by (device) ({metric}{{device="{device}"}})'
 
         url = f"{self.base_url}/api/v1/query_range"
         params = {"query": query, "start": start, "end": end, "step": step}
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.get(url, params=params)
+        resp = PROM_CLIENT.get(url, params=params)
         resp.raise_for_status()
 
         payload = resp.json()
+        if payload.get("status") != "success":
+            raise HTTPException(status_code=502, detail="Prometheus query failed")
         results = payload.get("data", {}).get("result", [])
+        if len(results) > 1:
+            raise HTTPException(status_code=502, detail="Prometheus query returned multiple series")
         if not results:
             return []
         values = results[0].get("values", [])
         return [float(v[1]) for v in values]
+
+
+@dataclass(frozen=True)
+class IntentMatch:
+    key: str
+    definition: dict
+
+    @property
+    def severity(self) -> str:
+        return str(self.definition.get("severity", "warning"))
 
 
 class IntentStore:
@@ -78,9 +101,36 @@ class IntentStore:
     def get(self, symptom: str) -> dict | None:
         return self._intents.get(symptom)
 
+    def match(self, symptom: str) -> IntentMatch | None:
+        exact = self.get(symptom)
+        if exact is not None:
+            return IntentMatch(key=symptom, definition=exact)
 
-def _resolve_playbook() -> str:
-    playbook = Path(DEFAULT_PLAYBOOK)
+        for key, definition in self._intents.items():
+            for pattern in definition.get("match", []):
+                try:
+                    if re.fullmatch(str(pattern), symptom, flags=re.IGNORECASE):
+                        return IntentMatch(key=str(key), definition=definition)
+                except re.error as exc:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Invalid intent match pattern for {key}",
+                    ) from exc
+        return None
+
+
+def _resolve_playbook(playbook_path: str | None = None) -> str:
+    configured = playbook_path or DEFAULT_PLAYBOOK
+    playbook = Path(configured)
+    if not playbook.is_absolute():
+        playbook = REPO_ROOT / playbook
+    playbook = playbook.resolve()
+
+    try:
+        playbook.relative_to(REPO_ROOT)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Playbook path must stay within repository") from exc
+
     if not playbook.is_file():
         raise HTTPException(status_code=404, detail="Playbook not found")
     return str(playbook)
@@ -113,7 +163,27 @@ def get_intent_store() -> IntentStore:
     return IntentStore(INTENTS_PATH)
 
 
-app = FastAPI(title="Smart AI Network Monitor API", version="0.1.0")
+def require_remediate_token(
+    x_api_token: str | None = Header(default=None, alias="X-API-Token"),
+) -> None:
+    if not REMEDIATE_API_TOKEN:
+        return
+    if not x_api_token or not secrets.compare_digest(x_api_token, REMEDIATE_API_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if not REMEDIATE_API_TOKEN:
+        LOG.warning(
+            "REMEDIATE_API_TOKEN is not set; /remediate is unauthenticated in %s mode",
+            ENVIRONMENT,
+        )
+    yield
+    PROM_CLIENT.close()
+
+
+app = FastAPI(title="Smart AI Network Monitor API", version="0.1.0", lifespan=lifespan)
 app.mount("/metrics", make_asgi_app())
 
 detector = AnomalyDetector()
@@ -126,6 +196,7 @@ class Alert(BaseModel):
     method: str
     score: float | None
     intent: str
+    severity: str
     message: str
 
 
@@ -163,7 +234,7 @@ def alerts(
     latency_result = detector.detect(latency_series)
     if latency_result.is_anomaly and latency_series:
         intent_key = "high_latency"
-        intents.get(intent_key)
+        intent_match = intents.match(intent_key) or IntentMatch(intent_key, {})
         ALERTS_TOTAL.labels(metric="latency", device=device_id).inc()
         alerts_out.append(
             Alert(
@@ -173,6 +244,7 @@ def alerts(
                 method=latency_result.method,
                 score=latency_result.score,
                 intent=intent_key,
+                severity=intent_match.severity,
                 message=latency_result.message,
             )
         )
@@ -180,7 +252,7 @@ def alerts(
     loss_result = detector.detect(loss_series)
     if loss_result.is_anomaly and loss_series:
         intent_key = "packet_loss"
-        intents.get(intent_key)
+        intent_match = intents.match(intent_key) or IntentMatch(intent_key, {})
         ALERTS_TOTAL.labels(metric="loss", device=device_id).inc()
         alerts_out.append(
             Alert(
@@ -190,6 +262,7 @@ def alerts(
                 method=loss_result.method,
                 score=loss_result.score,
                 intent=intent_key,
+                severity=intent_match.severity,
                 message=loss_result.message,
             )
         )
@@ -216,15 +289,20 @@ def _build_ansible_command(
 def remediate(
     request: RemediateRequest,
     intents: IntentStore = Depends(get_intent_store),
+    _token_ok: None = Depends(require_remediate_token),
 ) -> RemediateResult:
-    intent = intents.get(request.symptom)
-    if not intent or request.symptom not in ALLOWED_SYMPTOMS:
+    LOG.info("Remediation requested", extra={"intent": request.symptom, "dry_run": request.dry_run})
+    intent_match = intents.match(request.symptom)
+    if not intent_match:
         raise HTTPException(status_code=404, detail="Unknown intent")
+    intent = intent_match.definition
 
-    playbook = _resolve_playbook()
+    playbook = _resolve_playbook(intent.get("playbook"))
     extra_vars = intent.get("vars", {}).copy()
     extra_vars.update(
         {
+            "intent": intent_match.key,
+            "severity": intent_match.severity,
             "dry_run": request.dry_run,
             "canary": request.canary,
             "rollback": request.rollback,

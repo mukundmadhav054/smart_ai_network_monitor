@@ -48,6 +48,15 @@ jobs:
       - name: Unit tests
         run: pytest -q
 
+      - name: API health smoke test
+        run: |
+          set -e
+          uvicorn api.app:app --host 127.0.0.1 --port 8000 &
+          api_pid=$!
+          trap "kill ${api_pid}" EXIT
+          sleep 2
+          curl -fsS http://127.0.0.1:8000/health
+
       - name: Ansible syntax check
         run: ansible-playbook --syntax-check -i ansible/inventory/hosts.yml ansible/playbooks/remediate_latency.yml
 
